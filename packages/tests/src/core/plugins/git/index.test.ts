@@ -4,7 +4,9 @@
 
 import { getRepositoryData } from '@dd/core/plugins/git/helpers';
 import { getPlugins } from '@dd/telemetry-plugins';
-import { defaultPluginOptions, getFetchMock, runBundlers } from '@dd/tests/helpers';
+import { defaultPluginOptions, runBundlers } from '@dd/tests/helpers';
+import { API_PATH, FAKE_URL, getSourcemapsConfiguration } from '@dd/tests/plugins/rum/testHelpers';
+import nock from 'nock';
 
 jest.mock('@dd/telemetry-plugins', () => {
     const originalModule = jest.requireActual('@dd/telemetry-plugins');
@@ -27,21 +29,38 @@ jest.mock('@dd/core/plugins/git/helpers', () => {
     };
 });
 
-global.fetch = jest.fn(() => {
-    return getFetchMock();
-});
-
 const getRepositoryDataMocked = jest.mocked(getRepositoryData);
 
 describe('Git Plugin', () => {
+    beforeAll(() => {
+        // Mock requests.
+        nock(FAKE_URL).post(API_PATH).reply(200, {}).persist();
+    });
+    afterAll(() => {
+        nock.cleanAll();
+    });
     describe('It should run', () => {
-        test('by default and add the relevant data to the context.', async () => {
+        test('by default with sourcemaps.', async () => {
             const pluginConfig = {
                 ...defaultPluginOptions,
-                telemetry: {},
+                rum: {
+                    sourcemaps: getSourcemapsConfiguration(),
+                },
             };
             const results = await runBundlers(pluginConfig);
             expect(getRepositoryDataMocked).toHaveBeenCalledTimes(results.length);
+        });
+
+        test('and add the relevant data to the context.', async () => {
+            const pluginConfig = {
+                ...defaultPluginOptions,
+                telemetry: {},
+                rum: {
+                    sourcemaps: getSourcemapsConfiguration(),
+                },
+            };
+
+            await runBundlers(pluginConfig);
 
             // Confirm every call gets the git data in the context.
             for (const call of getPluginsMocked.mock.calls) {
@@ -52,9 +71,19 @@ describe('Git Plugin', () => {
         });
     });
     describe('It should not run', () => {
+        test('by default without sourcemaps.', async () => {
+            const pluginConfig = {
+                ...defaultPluginOptions,
+            };
+            await runBundlers(pluginConfig);
+            expect(getRepositoryDataMocked).not.toHaveBeenCalled();
+        });
         test('if we disable it from the configuration', async () => {
             const pluginConfig = {
                 ...defaultPluginOptions,
+                rum: {
+                    sourcemaps: getSourcemapsConfiguration(),
+                },
                 disableGit: true,
             };
             await runBundlers(pluginConfig);
